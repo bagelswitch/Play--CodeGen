@@ -256,6 +256,7 @@ namespace Jitter
 	};
 
 	typedef std::list<STATEMENT> StatementList;
+	typedef std::vector<STATEMENT> StatementVector;
 
 	std::string ConditionToString(CONDITION);
 	CONDITION NegateCondition(CONDITION);

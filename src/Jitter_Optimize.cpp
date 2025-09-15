@@ -31,6 +31,7 @@ unsigned int CJitter::CRelativeVersionManager::IncrementRelativeVersion(uint32 r
 CJitter::VERSIONED_STATEMENT_LIST CJitter::GenerateVersionedStatementList(const StatementList& statements)
 {
 	VERSIONED_STATEMENT_LIST result;
+	result.statements.reserve(256);
 
 	struct ReplaceUse
 	{
@@ -122,6 +123,7 @@ CJitter::VERSIONED_STATEMENT_LIST CJitter::GenerateVersionedStatementList(const 
 StatementList CJitter::CollapseVersionedStatementList(const VERSIONED_STATEMENT_LIST& statements)
 {
 	StatementList result;
+
 	for(auto newStatement : statements.statements)
 	{
 		newStatement.VisitOperands(
@@ -149,14 +151,14 @@ void CJitter::Compile()
 
 				//DumpStatementList(m_currentBlock->statements);
 
+				auto versionedStatements = GenerateVersionedStatementList(basicBlock.statements);
+
 				//These don't need to be run more than once
-				ClampingElimination(basicBlock.statements);
+				ClampingElimination(versionedStatements.statements);
 				if(m_codeGenSupportsCmpSelect)
 				{
-					MergeCmpSelectOps(basicBlock.statements);
+					MergeCmpSelectOps(versionedStatements.statements);
 				}
-
-				auto versionedStatements = GenerateVersionedStatementList(basicBlock.statements);
 
 				while(1)
 				{
@@ -860,7 +862,7 @@ bool CJitter::FoldConstant12832Operation(STATEMENT& statement)
 	return changed;
 }
 
-bool CJitter::ConstantFolding(StatementList& statements)
+bool CJitter::ConstantFolding(StatementVector& statements)
 {
 	bool changed = false;
 	for(auto& statement : statements)
@@ -924,6 +926,7 @@ void CJitter::MergeBasicBlocks(BASIC_BLOCK& dstBlock, const BASIC_BLOCK& srcBloc
 CJitter::BASIC_BLOCK CJitter::ConcatBlocks(const BasicBlockList& blocks)
 {
 	BASIC_BLOCK result;
+
 	for(const auto& basicBlock : blocks)
 	{
 		//First, add a mark label statement
@@ -1118,11 +1121,11 @@ bool CJitter::MergeBlocks()
 	return deletedBlocks != 0;
 }
 
-bool CJitter::ConstantPropagation(StatementList& statements)
+bool CJitter::ConstantPropagation(StatementVector& statements)
 {
 	bool changed = false;
 
-	for(StatementList::iterator outerStatementIterator(statements.begin());
+	for(StatementVector::iterator outerStatementIterator(statements.begin());
 	    statements.end() != outerStatementIterator; ++outerStatementIterator)
 	{
 		STATEMENT& outerStatement(*outerStatementIterator);
@@ -1137,7 +1140,7 @@ bool CJitter::ConstantPropagation(StatementList& statements)
 		if(!constant) continue;
 
 		//Find anything that uses this operand and replace it with the constant
-		for(StatementList::iterator innerStatementIterator(outerStatementIterator);
+		for(StatementVector::iterator innerStatementIterator(outerStatementIterator);
 		    statements.end() != innerStatementIterator; ++innerStatementIterator)
 		{
 			if(outerStatementIterator == innerStatementIterator) continue;
@@ -1157,7 +1160,7 @@ bool CJitter::ConstantPropagation(StatementList& statements)
 	return changed;
 }
 
-bool CJitter::ReorderAdd(StatementList& statements)
+bool CJitter::ReorderAdd(StatementVector& statements)
 {
 	bool changed = false;
 
@@ -1202,14 +1205,14 @@ bool CJitter::ReorderAdd(StatementList& statements)
 	return changed;
 }
 
-bool CJitter::CopyPropagation(StatementList& statements)
+bool CJitter::CopyPropagation(StatementVector& statements)
 {
 	bool changed = false;
 
 	struct USAGEINFO
 	{
 		uint32 count = 0;
-		StatementList::iterator lastUse;
+		StatementVector::iterator lastUse;
 	};
 	std::map<SymbolPtr, USAGEINFO> usageInfos;
 
@@ -1339,7 +1342,7 @@ bool CJitter::CopyPropagation(StatementList& statements)
 bool CJitter::CommonExpressionElimination(VERSIONED_STATEMENT_LIST& versionedStatementList)
 {
 	bool changed = false;
-	std::vector<StatementList::const_iterator> tempDefs;
+	std::vector<StatementVector::const_iterator> tempDefs;
 	std::unordered_map<SymbolPtr, SymbolPtr> tempReplaceMap;
 	tempDefs.reserve(versionedStatementList.statements.size());
 
@@ -1401,7 +1404,7 @@ bool CJitter::CommonExpressionElimination(VERSIONED_STATEMENT_LIST& versionedSta
 	return changed;
 }
 
-bool CJitter::ClampingElimination(StatementList& statements)
+bool CJitter::ClampingElimination(StatementVector& statements)
 {
 	bool changed = false;
 
@@ -1448,7 +1451,7 @@ bool CJitter::ClampingElimination(StatementList& statements)
 	return changed;
 }
 
-bool CJitter::MergeCmpSelectOps(StatementList& statements)
+bool CJitter::MergeCmpSelectOps(StatementVector& statements)
 {
 	bool changed = false;
 
@@ -1503,8 +1506,8 @@ bool CJitter::DeadcodeElimination(VERSIONED_STATEMENT_LIST& versionedStatementLi
 {
 	bool changed = false;
 
-	typedef std::list<StatementList::iterator> ToDeleteList;
-	ToDeleteList toDelete;
+	StatementVector toKeep;
+	toKeep.reserve(256);
 
 	for(auto outerStatementIterator(versionedStatementList.statements.begin());
 	    versionedStatementList.statements.end() != outerStatementIterator; ++outerStatementIterator)
@@ -1526,7 +1529,11 @@ bool CJitter::DeadcodeElimination(VERSIONED_STATEMENT_LIST& versionedStatementLi
 			}
 		}
 
-		if(!candidate) continue;
+		if(!candidate)
+		{
+			toKeep.push_back(*outerStatementIterator);
+			continue;
+		}
 
 		//Look for any possible use of this symbol
 		bool used = false;
@@ -1559,16 +1566,14 @@ bool CJitter::DeadcodeElimination(VERSIONED_STATEMENT_LIST& versionedStatementLi
 		if(!used)
 		{
 			//Kill it!
-			toDelete.push_back(outerStatementIterator);
+			changed = true;
+		}
+		else {
+			toKeep.push_back(*outerStatementIterator);
 		}
 	}
 
-	for(ToDeleteList::const_iterator deleteIterator(toDelete.begin());
-	    toDelete.end() != deleteIterator; ++deleteIterator)
-	{
-		versionedStatementList.statements.erase(*deleteIterator);
-		changed = true;
-	}
+	versionedStatementList.statements = toKeep;
 
 	return changed;
 }

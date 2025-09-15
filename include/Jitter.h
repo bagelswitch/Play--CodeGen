@@ -302,7 +302,7 @@ namespace Jitter
 
 		struct VERSIONED_STATEMENT_LIST
 		{
-			StatementList statements;
+			StatementVector statements;
 			CRelativeVersionManager relativeVersions;
 		};
 
@@ -319,13 +319,13 @@ namespace Jitter
 
 		void Compile();
 
-		bool ConstantFolding(StatementList&);
-		bool ConstantPropagation(StatementList&);
-		bool CopyPropagation(StatementList&);
-		bool ReorderAdd(StatementList&);
+		bool ConstantFolding(StatementVector&);
+		bool ConstantPropagation(StatementVector&);
+		bool CopyPropagation(StatementVector&);
+		bool ReorderAdd(StatementVector&);
 		bool CommonExpressionElimination(VERSIONED_STATEMENT_LIST&);
-		bool ClampingElimination(StatementList&);
-		bool MergeCmpSelectOps(StatementList&);
+		bool ClampingElimination(StatementVector&);
+		bool MergeCmpSelectOps(StatementVector&);
 		bool DeadcodeElimination(VERSIONED_STATEMENT_LIST&);
 
 		void FixFlowControl(StatementList&);
