@@ -28,10 +28,15 @@ unsigned int CJitter::CRelativeVersionManager::IncrementRelativeVersion(uint32 r
 	return nextVersion;
 }
 
+void CJitter::CRelativeVersionManager::Reset()
+{
+	m_relativeVersions.clear();
+}
+
 CJitter::VERSIONED_STATEMENT_LIST CJitter::GenerateVersionedStatementList(const StatementList& statements)
 {
-	VERSIONED_STATEMENT_LIST result;
-	result.statements.reserve(256);
+	versionedStatements.statements.clear();
+	versionedStatements.relativeVersions.Reset();
 
 	struct ReplaceUse
 	{
@@ -77,28 +82,28 @@ CJitter::VERSIONED_STATEMENT_LIST CJitter::GenerateVersionedStatementList(const 
 
 	for(auto newStatement : statements)
 	{
-		ReplaceUse()(newStatement.src1, result.relativeVersions);
-		ReplaceUse()(newStatement.src2, result.relativeVersions);
-		ReplaceUse()(newStatement.src3, result.relativeVersions);
+		ReplaceUse()(newStatement.src1, versionedStatements.relativeVersions);
+		ReplaceUse()(newStatement.src2, versionedStatements.relativeVersions);
+		ReplaceUse()(newStatement.src3, versionedStatements.relativeVersions);
 
 		if(auto dst = dynamic_symbolref_cast(SYM_RELATIVE, newStatement.dst))
 		{
-			unsigned int nextVersion = result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow);
+			unsigned int nextVersion = versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow);
 			newStatement.dst = std::make_shared<CSymbolRef>(newStatement.dst->GetSymbol(), nextVersion);
 		}
 		//Increment relative versions to prevent some optimization problems
 		else if(auto dst = dynamic_symbolref_cast(SYM_REL_REFERENCE, newStatement.dst))
 		{
-			result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow);
+			versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow);
 		}
 		else if(auto dst = dynamic_symbolref_cast(SYM_FP_RELATIVE32, newStatement.dst))
 		{
-			result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow);
+			versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow);
 		}
 		else if(auto dst = dynamic_symbolref_cast(SYM_RELATIVE64, newStatement.dst))
 		{
-			result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 0);
-			result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 4);
+			versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 0);
+			versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 4);
 		}
 		else if(auto dst = dynamic_symbolref_cast(SYM_RELATIVE128, newStatement.dst))
 		{
@@ -108,16 +113,16 @@ CJitter::VERSIONED_STATEMENT_LIST CJitter::GenerateVersionedStatementList(const 
 				mask = static_cast<uint8>(newStatement.jmpCondition);
 			}
 
-			result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 0);
-			if(mask & 0x02) result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 4);
-			if(mask & 0x04) result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 8);
-			if(mask & 0x08) result.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 12);
+			versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 0);
+			if(mask & 0x02) versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 4);
+			if(mask & 0x04) versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 8);
+			if(mask & 0x08) versionedStatements.relativeVersions.IncrementRelativeVersion(dst->m_valueLow + 12);
 		}
 
-		result.statements.push_back(newStatement);
+		versionedStatements.statements.push_back(newStatement);
 	}
 
-	return result;
+	return versionedStatements;
 }
 
 StatementList CJitter::CollapseVersionedStatementList(const VERSIONED_STATEMENT_LIST& statements)
@@ -1506,8 +1511,7 @@ bool CJitter::DeadcodeElimination(VERSIONED_STATEMENT_LIST& versionedStatementLi
 {
 	bool changed = false;
 
-	StatementVector toKeep;
-	toKeep.reserve(256);
+	DeadcodeToKeep.clear();
 
 	for(auto outerStatementIterator(versionedStatementList.statements.begin());
 	    versionedStatementList.statements.end() != outerStatementIterator; ++outerStatementIterator)
@@ -1531,7 +1535,7 @@ bool CJitter::DeadcodeElimination(VERSIONED_STATEMENT_LIST& versionedStatementLi
 
 		if(!candidate)
 		{
-			toKeep.push_back(*outerStatementIterator);
+			DeadcodeToKeep.push_back(*outerStatementIterator);
 			continue;
 		}
 
@@ -1569,11 +1573,11 @@ bool CJitter::DeadcodeElimination(VERSIONED_STATEMENT_LIST& versionedStatementLi
 			changed = true;
 		}
 		else {
-			toKeep.push_back(*outerStatementIterator);
+			DeadcodeToKeep.push_back(*outerStatementIterator);
 		}
 	}
 
-	versionedStatementList.statements = toKeep;
+	versionedStatementList.statements = DeadcodeToKeep;
 
 	return changed;
 }

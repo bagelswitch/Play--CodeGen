@@ -283,6 +283,7 @@ namespace Jitter
 		public:
 			unsigned int GetRelativeVersion(uint32);
 			unsigned int IncrementRelativeVersion(uint32);
+			void Reset();
 
 		private:
 			typedef std::unordered_map<uint32, unsigned int> RelativeVersionMap;
@@ -384,6 +385,9 @@ namespace Jitter
 		LabelMapType m_labels;
 
 		bool m_codeGenSupportsCmpSelect = false;
+
+		VERSIONED_STATEMENT_LIST versionedStatements;
+		std::vector<STATEMENT> DeadcodeToKeep;
 	};
 
 }
